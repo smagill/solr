@@ -27,10 +27,12 @@ configure(rootProject) {
 
   eclipse {
     project {
-      name = "Apache Lucene Solr ${version}"
+      name = "Apache Solr ${version}"
     }
 
     classpath {
+      downloadSources = true
+      downloadJavadoc = true
       defaultOutputDir = file('build/eclipse')
 
       file {
@@ -67,9 +69,9 @@ configure(rootProject) {
     }
 
     jdt {
-      sourceCompatibility = rootProject.minJavaVersion
-      targetCompatibility = rootProject.minJavaVersion
-      javaRuntimeName = "JavaSE-${rootProject.minJavaVersion}"
+      sourceCompatibility = rootProject.minJavaVersionDefault
+      targetCompatibility = rootProject.minJavaVersionDefault
+      javaRuntimeName = "JavaSE-${rootProject.minJavaVersionDefault}"
     }
   }
 

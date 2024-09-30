@@ -16,20 +16,20 @@
  */
 package org.apache.solr.search.facet;
 
+import com.carrotsearch.hppc.LongHashSet;
+import com.carrotsearch.hppc.LongSet;
+import com.carrotsearch.hppc.cursors.LongCursor;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.SortedNumericDocValues;
+import org.apache.solr.common.util.CollectionUtil;
 import org.apache.solr.common.util.SimpleOrderedMap;
 import org.apache.solr.schema.SchemaField;
-import org.apache.solr.util.LongIterator;
-import org.apache.solr.util.LongSet;
 
 public class UniqueAgg extends StrAggValueSource {
   public static final String UNIQUE = "unique";
@@ -42,7 +42,8 @@ public class UniqueAgg extends StrAggValueSource {
   }
 
   @Override
-  public SlotAcc createSlotAcc(FacetContext fcontext, long numDocs, int numSlots) throws IOException {
+  public SlotAcc createSlotAcc(FacetContext fcontext, long numDocs, int numSlots)
+      throws IOException {
     SchemaField sf = fcontext.qcontext.searcher().getSchema().getField(getArg());
     if (sf.multiValued() || sf.getType().multiValuedFieldCache()) {
       if (sf.getType().isPointField()) {
@@ -75,17 +76,16 @@ public class UniqueAgg extends StrAggValueSource {
     long shardsMissingMax;
 
     @Override
-    @SuppressWarnings({"unchecked", "rawtypes"})
     public void merge(Object facetResult, Context mcontext) {
-      SimpleOrderedMap map = (SimpleOrderedMap)facetResult;
-      long unique = ((Number)map.get(UNIQUE)).longValue();
+      SimpleOrderedMap<?> map = (SimpleOrderedMap<?>) facetResult;
+      long unique = ((Number) map.get(UNIQUE)).longValue();
       sumUnique += unique;
 
       int valsListed = 0;
-      List vals = (List) map.get(VALS);
+      List<?> vals = (List<?>) map.get(VALS);
       if (vals != null) {
         if (values == null) {
-          values = new HashSet<>(vals.size()*4);
+          values = CollectionUtil.newHashSet(vals.size() * 4);
         }
         values.addAll(vals);
         valsListed = vals.size();
@@ -106,8 +106,9 @@ public class UniqueAgg extends StrAggValueSource {
         return answer;
       }
 
-      double factor = ((double)values.size()) / sumAdded;  // what fraction of listed values were unique
-      long estimate = (long)(shardsMissingSum * factor);
+      double factor =
+          ((double) values.size()) / sumAdded; // what fraction of listed values were unique
+      long estimate = (long) (shardsMissingSum * factor);
       answer = values.size() + estimate;
       return answer;
     }
@@ -118,13 +119,13 @@ public class UniqueAgg extends StrAggValueSource {
     }
 
     @Override
-    public int compareTo(FacetModule.FacetSortableMerger other, FacetRequest.SortDirection direction) {
-      return Long.compare( getLong(), ((Merger)other).getLong() );
+    public int compareTo(
+        FacetModule.FacetSortableMerger other, FacetRequest.SortDirection direction) {
+      return Long.compare(getLong(), ((Merger) other).getLong());
     }
   }
 
-
-  static abstract class BaseNumericAcc extends DocValuesAcc {
+  abstract static class BaseNumericAcc extends DocValuesAcc {
     LongSet[] sets;
 
     public BaseNumericAcc(FacetContext fcontext, String field, int numSlots) throws IOException {
@@ -146,7 +147,7 @@ public class UniqueAgg extends StrAggValueSource {
     protected void collectValues(int doc, int slot) throws IOException {
       LongSet set = sets[slot];
       if (set == null) {
-        set = sets[slot] = new LongSet(16);
+        set = sets[slot] = new LongHashSet(16);
       }
       collectValues(doc, set);
     }
@@ -161,40 +162,35 @@ public class UniqueAgg extends StrAggValueSource {
       return getNonShardValue(slot);
     }
 
-    /**
-     * Returns the current slot value as long
-     * This is used to get non-sharded value
-     */
+    /** Returns the current slot value as long This is used to get non-sharded value */
     private long getNonShardValue(int slot) {
       return (long) getCardinality(slot);
     }
 
     /**
-     * Returns the size of the {@code LongSet} for given slot
-     * If value doesn't exist for slot then returns 0
+     * Returns the size of the {@code LongSet} for given slot If value doesn't exist for slot then
+     * returns 0
      */
     private int getCardinality(int slot) {
       LongSet set = sets[slot];
-      return set == null ? 0 : set.cardinality();
+      return set == null ? 0 : set.size();
     }
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
     public Object getShardValue(int slot) throws IOException {
       LongSet set = sets[slot];
       int unique = getCardinality(slot);
 
-      SimpleOrderedMap map = new SimpleOrderedMap();
+      SimpleOrderedMap<Object> map = new SimpleOrderedMap<>();
       map.add(UNIQUE, unique);
 
-      int maxExplicit=100;
+      int maxExplicit = 100;
       // TODO: make configurable
       // TODO: share values across buckets
       if (unique <= maxExplicit) {
-        List lst = new ArrayList( Math.min(unique, maxExplicit) );
+        List<Long> lst = new ArrayList<>(Math.min(unique, maxExplicit));
         if (set != null) {
-          LongIterator iter = set.iterator();
-          while (iter.hasNext()) {
-            lst.add( iter.next() );
+          for (LongCursor v : set) {
+            lst.add(v.value);
           }
         }
         map.add(VALS, lst);
@@ -203,12 +199,10 @@ public class UniqueAgg extends StrAggValueSource {
       return map;
     }
 
-
     @Override
     public int compare(int slotA, int slotB) {
       return getCardinality(slotA) - getCardinality(slotB);
     }
-
   }
 
   static class NumericAcc extends BaseNumericAcc {
@@ -225,7 +219,7 @@ public class UniqueAgg extends StrAggValueSource {
 
     @Override
     public void setNextReader(LeafReaderContext readerContext) throws IOException {
-      values = DocValues.getNumeric(readerContext.reader(),  sf.getName());
+      values = DocValues.getNumeric(readerContext.reader(), sf.getName());
     }
 
     @Override
@@ -248,7 +242,7 @@ public class UniqueAgg extends StrAggValueSource {
 
     @Override
     public void setNextReader(LeafReaderContext readerContext) throws IOException {
-      values = DocValues.getSortedNumeric(readerContext.reader(),  sf.getName());
+      values = DocValues.getSortedNumeric(readerContext.reader(), sf.getName());
     }
 
     @Override
@@ -259,6 +253,4 @@ public class UniqueAgg extends StrAggValueSource {
       }
     }
   }
-
-
 }
